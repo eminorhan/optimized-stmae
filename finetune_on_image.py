@@ -28,13 +28,11 @@ from engine_finetune_on_image import evaluate, train_one_epoch
 import util.lr_decay as lrd
 
 from torchvision.transforms import Compose, ToTensor, Normalize, Resize, CenterCrop, RandomResizedCrop, RandomHorizontalFlip
-from util.decoder.mixup import MixUp as MixVideo
 from util.logging import master_print as print
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 from util.pos_embed import interpolate_pos_embed
 
-from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
-from timm.models.layers import trunc_normal_
+from torch.nn.init import trunc_normal_
 
 def get_args_parser():
     parser = argparse.ArgumentParser("MAE fine-tuning for image classification", add_help=False)
@@ -60,14 +58,6 @@ def get_args_parser():
 
     # Augmentation parameters
     parser.add_argument("--smoothing", type=float, default=0.0, help="Label smoothing (default: 0.0)")
-
-    # * Mixup params
-    parser.add_argument("--mixup", type=float, default=0, help="mixup alpha, mixup enabled if > 0.")
-    parser.add_argument("--cutmix", type=float, default=0, help="cutmix alpha, cutmix enabled if > 0.")
-    parser.add_argument("--cutmix_minmax", type=float, nargs="+", default=None, help="cutmix min/max ratio, overrides alpha and enables cutmix if set (default: None)")
-    parser.add_argument("--mixup_prob", type=float, default=1.0, help="Probability of performing mixup or cutmix when either/both is enabled")
-    parser.add_argument("--mixup_switch_prob", type=float, default=0.5, help="Probability of switching to cutmix when both mixup and cutmix enabled")
-    parser.add_argument("--mixup_mode", type=str, default="batch", help='How to apply mixup/cutmix params. Per "batch", "pair", or "elem"')
 
     # * dataset params
     parser.add_argument("--num_classes", default=700, type=int, help="number of the classes")
@@ -108,8 +98,6 @@ def get_args_parser():
     parser.add_argument("--bias_wd", action="store_true")
     parser.add_argument("--sep_pos_embed", action="store_true")
     parser.set_defaults(sep_pos_embed=True)
-    parser.add_argument("--fp32", action="store_true")
-    parser.set_defaults(fp32=True)
     parser.add_argument("--cls_embed", action="store_true")
     parser.set_defaults(cls_embed=True)
 
@@ -154,7 +142,7 @@ def main(args):
     train_dataset = ImageFolder(args.train_data_path, transform=train_transform)
     # few-shot finetuning
     if args.frac_retained < 1.0:
-        print('Fraction of train data retained:', args.frac_retained)
+        print(f"Fraction of train data retained: {args.frac_retained}")
         num_train = len(train_dataset)
         num_kept = int(args.frac_retained * num_train)
         train_dataset, _ = torch.utils.data.random_split(train_dataset, (num_kept, num_train-num_kept))
@@ -162,18 +150,13 @@ def main(args):
         train_loader = torch.utils.data.DataLoader(train_dataset, sampler=sampler_train, batch_size=args.batch_size_per_gpu, num_workers=args.num_workers, pin_memory=True, drop_last=True)
         print(f"Data loaded with {len(train_dataset)} train and {len(val_dataset)} val imgs.")
     else:
-        print('Using all of train data')
+        print("Using all of train data.")
         sampler_train = DistributedSampler(train_dataset, num_replicas=num_tasks, rank=global_rank, shuffle=True)
         train_loader = torch.utils.data.DataLoader(train_dataset, sampler=sampler_train, batch_size=args.batch_size_per_gpu, num_workers=args.num_workers, pin_memory=True, drop_last=True)    
         print(f"Data loaded with {len(train_dataset)} train and {len(val_dataset)} val imgs.")
     # ============ done data ... ============
 
-    mixup_fn = None
-    mixup_active = args.mixup > 0 or args.cutmix > 0.0 or args.cutmix_minmax is not None
-    if mixup_active:
-        print("Mixup is activated!")
-        mixup_fn = MixVideo(mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, mix_prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, label_smoothing=args.smoothing, num_classes=args.num_classes)
-
+    # define model
     model = models_vit.__dict__[args.model](**vars(args))
 
     if misc.get_last_checkpoint(args) is None and args.finetune and not args.eval:
@@ -202,22 +185,16 @@ def main(args):
         trunc_normal_(model.head.weight, std=2e-5)
 
     model.to(device)
-
     model_without_ddp = model
-    n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    print("model = %s" % str(model_without_ddp))
-    print("number of params (M): %.2f" % (n_parameters / 1.0e6))
+    print(f"Model: {model_without_ddp}")
+    print(f"Number of params (M): {(sum(p.numel() for p in model_without_ddp.parameters() if p.requires_grad) / 1.e6)}")
 
     eff_batch_size = (args.batch_size_per_gpu * args.accum_iter * misc.get_world_size())
+    print(f"Effective batch size: {eff_batch_size} = {args.batch_size_per_gpu} batch_size_per_gpu * {args.accum_iter} accum_iter * {misc.get_world_size()} GPUs")
 
     if args.lr is None:  # only base_lr is specified
         args.lr = args.blr * eff_batch_size / 256
-
-    print("base lr: %.2e" % (args.lr * 256 / eff_batch_size))
-    print("actual lr: %.2e" % args.lr)
-    print("accumulate grad iterations: %d" % args.accum_iter)
-    print("effective batch size: %d" % eff_batch_size)
+    print(f"Effective lr: {args.lr}")
 
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[torch.cuda.current_device()])
     model_without_ddp = model.module
@@ -225,17 +202,11 @@ def main(args):
     # build optimizer with layer-wise lr decay (lrd)
     param_groups = lrd.param_groups_lrd(model_without_ddp, args.weight_decay, no_weight_decay_list=model_without_ddp.no_weight_decay(), layer_decay=args.layer_decay)    
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr)
-    loss_scaler = NativeScaler(fp32=args.fp32)
+    loss_scaler = NativeScaler()
 
-    if mixup_fn is not None:
-        # smoothing is handled with mixup label transform
-        criterion = SoftTargetCrossEntropy()
-    elif args.smoothing > 0.0:
-        criterion = LabelSmoothingCrossEntropy(smoothing=args.smoothing)
-    else:
-        criterion = torch.nn.CrossEntropyLoss()
-
-    print("criterion = %s" % str(criterion))
+    # build criterion
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.smoothing)
+    print(f"Criterion = {criterion}")
 
     if args.eval:
         test_stats = evaluate(val_loader, model, device, args.num_frames)
@@ -251,7 +222,7 @@ def main(args):
         
         train_loader.sampler.set_epoch(epoch)
 
-        train_stats = train_one_epoch(model, criterion, train_loader, optimizer, device, epoch, args.num_frames, loss_scaler, args.clip_grad, mixup_fn, args=args, fp32=args.fp32)
+        train_stats = train_one_epoch(model, criterion, train_loader, optimizer, device, epoch, args.num_frames, loss_scaler, args.clip_grad, args=args)
         test_stats = evaluate(val_loader, model, device, args.num_frames)
         print(f"Accuracy of the model on the {len(val_dataset)} test images: {test_stats['acc1']:.1f}%")
 
@@ -262,7 +233,7 @@ def main(args):
         max_accuracy = max(max_accuracy, test_stats["acc1"])
         print(f"Max accuracy: {max_accuracy:.2f}%")
 
-        log_stats = {**{f"train_{k}": v for k, v in train_stats.items()}, **{f"test_{k}": v for k, v in test_stats.items()}, "epoch": epoch, "n_parameters": n_parameters}
+        log_stats = {**{f"train_{k}": v for k, v in train_stats.items()}, **{f"test_{k}": v for k, v in test_stats.items()}, "epoch": epoch}
 
         if args.output_dir and misc.is_main_process():
             with pathmgr.open(f"{args.output_dir}/{args.save_prefix}_log.txt", "a") as f:

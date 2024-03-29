@@ -9,10 +9,10 @@
 # BEiT: https://github.com/microsoft/unilm/tree/master/beit
 # --------------------------------------------------------
 import math
-from typing import Iterable
-
-import util.misc as misc
 import torch
+import util.misc as misc
+
+from typing import Iterable
 from iopath.common.file_io import g_pathmgr as pathmgr
 
 def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, optimizer: torch.optim.Optimizer, device: torch.device, epoch: int, loss_scaler, args=None):
@@ -25,8 +25,8 @@ def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, optimizer: to
     metric_logger.add_meter("gpu_mem", misc.SmoothedValue(window_size=1, fmt="{value:.6f}"))
     metric_logger.add_meter("mask_ratio", misc.SmoothedValue(window_size=1, fmt="{value:.6f}"))
     header = "Epoch: [{}]".format(epoch)
+    
     num_logs_per_epoch = 1
-
     accum_iter = args.accum_iter
 
     optimizer.zero_grad()

@@ -11,14 +11,13 @@
 
 import math
 import sys
-from typing import Iterable, Optional
+from typing import Iterable
 
 import util.misc as misc
 import util.lr_sched as lr_sched
 
 import torch
 from util.logging import master_print as print
-from timm.data import Mixup
 from timm.utils import accuracy
 
 
@@ -32,9 +31,7 @@ def train_one_epoch(
     num_frames: int,
     loss_scaler,
     max_norm: float = 0,
-    mixup_fn: Optional[Mixup] = None,
     args=None,
-    fp32=False,
 ):
     model.train(True)
     metric_logger = misc.MetricLogger(delimiter="  ")
@@ -53,18 +50,10 @@ def train_one_epoch(
 
         samples = samples.unsqueeze(2).repeat((1, 1, num_frames, 1, 1))
 
-        if args.cpu_mix:
-            if mixup_fn is not None:
-                samples, targets = mixup_fn(samples, targets)
-            samples = samples.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
-        else:
-            samples = samples.to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
-            if mixup_fn is not None:
-                samples, targets = mixup_fn(samples, targets)
+        samples = samples.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
 
-        with torch.cuda.amp.autocast(enabled=not fp32):
+        with torch.cuda.amp.autocast():
             outputs = model(samples)
             loss = criterion(outputs, targets)
 
@@ -98,7 +87,7 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def evaluate(data_loader, model, device, num_frames, fp32=True):
+def evaluate(data_loader, model, device, num_frames):
     criterion = torch.nn.CrossEntropyLoss()
 
     metric_logger = misc.MetricLogger(delimiter="  ")
@@ -116,7 +105,7 @@ def evaluate(data_loader, model, device, num_frames, fp32=True):
         target = target.to(device, non_blocking=True)
 
         # compute output
-        with torch.cuda.amp.autocast(enabled=not fp32):
+        with torch.cuda.amp.autocast():
             output = model(images)
             loss = criterion(output, target)
 

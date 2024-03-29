@@ -134,10 +134,9 @@ def main(args):
     data_loader_train = DataLoader(dataset_train, sampler=sampler_train, batch_size=args.batch_size_per_gpu, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
     print(f"Sampler_train = {sampler_train}")
 
-    # define the model
+    # define model
     model = models_mae.__dict__[args.model](**vars(args))
     model.to(device)
-
     model_without_ddp = model
     print(f"Model: {model_without_ddp}")
     print(f"Number of params (M): {(sum(p.numel() for p in model_without_ddp.parameters() if p.requires_grad) / 1.e6)}")

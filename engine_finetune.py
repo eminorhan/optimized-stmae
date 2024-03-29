@@ -11,7 +11,7 @@
 
 import math
 import sys
-from typing import Iterable, Optional
+from typing import Iterable
 
 import util.misc as misc
 import util.lr_sched as lr_sched

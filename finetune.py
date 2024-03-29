@@ -30,7 +30,7 @@ from util.kinetics import Kinetics
 from util.logging import master_print as print
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
-from timm.models.layers import trunc_normal_
+from torch.nn.init import trunc_normal_
 
 def get_args_parser():
     parser = argparse.ArgumentParser("MAE fine-tuning for image classification", add_help=False)
@@ -192,7 +192,7 @@ def main(args):
     sampler_val = DistributedSampler(dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
     data_loader_val = DataLoader(dataset_val, sampler=sampler_val, batch_size=8*args.batch_size_per_gpu, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
 
-    # build model
+    # define model
     model = models_vit.__dict__[args.model](**vars(args))
 
     if misc.get_last_checkpoint(args) is None and args.finetune and not args.eval:
@@ -218,7 +218,6 @@ def main(args):
         trunc_normal_(model.head.weight, std=2e-5)
 
     model.to(device)
-
     model_without_ddp = model
     print(f"Model: {model_without_ddp}")
     print(f"Number of params (M): {(sum(p.numel() for p in model_without_ddp.parameters() if p.requires_grad) / 1.e6)}")
