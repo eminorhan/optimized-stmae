@@ -23,6 +23,7 @@ import torch
 import torch.backends.cudnn as cudnn
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader, DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
 from iopath.common.file_io import g_pathmgr as pathmgr
 from engine_finetune_on_image import evaluate, train_one_epoch
 import util.lr_decay as lrd
@@ -189,6 +190,10 @@ def main(args):
     print(f"Model: {model_without_ddp}")
     print(f"Number of params (M): {(sum(p.numel() for p in model_without_ddp.parameters() if p.requires_grad) / 1.e6)}")
 
+    # optionally compile model
+    if args.compile:
+        model = torch.compile(model)
+
     eff_batch_size = (args.batch_size_per_gpu * args.accum_iter * misc.get_world_size())
     print(f"Effective batch size: {eff_batch_size} = {args.batch_size_per_gpu} batch_size_per_gpu * {args.accum_iter} accum_iter * {misc.get_world_size()} GPUs")
 
@@ -196,8 +201,8 @@ def main(args):
         args.lr = args.blr * eff_batch_size / 256
     print(f"Effective lr: {args.lr}")
 
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[torch.cuda.current_device()])
-    model_without_ddp = model.module
+    # wrap model in ddp
+    model = DDP(model, device_ids=[torch.cuda.current_device()])
 
     # build optimizer with layer-wise lr decay (lrd)
     param_groups = lrd.param_groups_lrd(model_without_ddp, args.weight_decay, no_weight_decay_list=model_without_ddp.no_weight_decay(), layer_decay=args.layer_decay)    

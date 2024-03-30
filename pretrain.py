@@ -19,7 +19,7 @@ import torch.backends.cudnn as cudnn
 from iopath.common.file_io import g_pathmgr as pathmgr
 from pathlib import Path
 from torch.utils.data import DistributedSampler, DataLoader
-
+from torch.nn.parallel import DistributedDataParallel as DDP
 import util.misc as misc
 import models_mae
 from engine_pretrain import train_one_epoch
@@ -45,6 +45,7 @@ def get_args_parser():
     parser.add_argument("--mask_ratio", default=0.9, type=float, help="Masking ratio (percentage of removed patches).")
     parser.add_argument("--norm_pix_loss", action="store_true", help="Use (per-patch) normalized pixels as targets for computing loss")
     parser.add_argument("--resume", default="", help="Resume from checkpoint")
+    parser.add_argument('--compile', action='store_true', help='whether to compile the model for improved efficiency (default: false)')
     parser.set_defaults(norm_pix_loss=False)
 
     # Training related parameters
@@ -134,6 +135,10 @@ def main(args):
     data_loader_train = DataLoader(dataset_train, sampler=sampler_train, batch_size=args.batch_size_per_gpu, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
     print(f"Sampler_train = {sampler_train}")
 
+    # effective batch size
+    eff_batch_size = args.batch_size_per_gpu * args.accum_iter * misc.get_world_size()
+    print(f"Effective batch size: {eff_batch_size} = {args.batch_size_per_gpu} batch_size_per_gpu * {args.accum_iter} accum_iter * {misc.get_world_size()} GPUs")
+
     # define model
     model = models_mae.__dict__[args.model](**vars(args))
     model.to(device)
@@ -141,12 +146,12 @@ def main(args):
     print(f"Model: {model_without_ddp}")
     print(f"Number of params (M): {(sum(p.numel() for p in model_without_ddp.parameters() if p.requires_grad) / 1.e6)}")
 
-    # effective batch size
-    eff_batch_size = args.batch_size_per_gpu * args.accum_iter * misc.get_world_size()
-    print(f"Effective batch size: {eff_batch_size} = {args.batch_size_per_gpu} batch_size_per_gpu * {args.accum_iter} accum_iter * {misc.get_world_size()} GPUs")
+    # optionally compile model
+    if args.compile:
+        model = torch.compile(model)
 
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[torch.cuda.current_device()])
-    model_without_ddp = model.module
+    # wrap in ddp
+    model = DDP(model, device_ids=[torch.cuda.current_device()])
 
     # following timm: set wd as 0 for bias and norm layers
     param_groups = misc.add_weight_decay(model_without_ddp, args.weight_decay, bias_wd=args.bias_wd)
