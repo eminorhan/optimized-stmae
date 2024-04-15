@@ -69,7 +69,7 @@ def get_args_parser():
     parser.add_argument("--resplit", action="store_true", default=False, help="Do not random erase first (clean) augmentation split")
 
     # * Finetuning params
-    parser.add_argument("--finetune", default="", help="finetune from checkpoint")
+    parser.add_argument("--resume", default="", help="finetune from checkpoint")
     parser.add_argument("--global_pool", action="store_true")
     parser.set_defaults(global_pool=True)
     parser.add_argument("--cls_token", action="store_false", dest="global_pool", help="Use class token instead of global pool for classification")
@@ -108,7 +108,7 @@ def get_args_parser():
     parser.set_defaults(sep_pos_embed=True)
     parser.add_argument("--cls_embed", action="store_true")
     parser.set_defaults(cls_embed=True)
-    parser.add_argument("--jitter_scales_relative", default=[0.08, 1.0], type=float, nargs="+")
+    parser.add_argument("--jitter_scales_relative", default=[0.2, 1.0], type=float, nargs="+")
     parser.add_argument("--jitter_aspect_relative", default=[0.75, 1.3333], type=float, nargs="+")
     parser.add_argument("--train_jitter_scales", default=[256, 320], type=int, nargs="+")
 
@@ -190,36 +190,11 @@ def main(args):
     data_loader_train = DataLoader(dataset_train, sampler=sampler_train, batch_size=args.batch_size_per_gpu, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=True)
     print(f"Sampler_train = {sampler_train}")
 
-    # sampler_val = SequentialSampler(dataset_val)
-    # data_loader_val = DataLoader(dataset_val, sampler=sampler_val, batch_size=8*args.batch_size_per_gpu, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
-    sampler_val = DistributedSampler(dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False)
+    sampler_val = SequentialSampler(dataset_val)
     data_loader_val = DataLoader(dataset_val, sampler=sampler_val, batch_size=8*args.batch_size_per_gpu, num_workers=args.num_workers, pin_memory=args.pin_mem, drop_last=False)
 
     # define model
     model = models_vit.__dict__[args.model](**vars(args))
-
-    if misc.get_last_checkpoint(args) is None and args.finetune and not args.eval:
-        with pathmgr.open(args.finetune, "rb") as f:
-            checkpoint = torch.load(f, map_location="cpu")
-
-        print("Load pre-trained checkpoint from: %s" % args.finetune)
-        if "model" in checkpoint.keys():
-            checkpoint_model = checkpoint["model"]
-        else:
-            checkpoint_model = checkpoint["model_state"]
-        state_dict = model.state_dict()
-        for k in ["head.weight", "head.bias"]:
-            if (k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape):
-                print(f"Removing key {k} from pretrained checkpoint")
-                del checkpoint_model[k]
-
-        # load pre-trained model
-        msg = model.load_state_dict(checkpoint_model, strict=False)
-        print(msg)
-
-        # manually initialize fc layer
-        trunc_normal_(model.head.weight, std=2e-5)
-
     model.to(device)
     model_without_ddp = model
     print(f"Model: {model_without_ddp}")
@@ -243,8 +218,10 @@ def main(args):
 
     # build optimizer with layer-wise lr decay (lrd)
     param_groups = lrd.param_groups_lrd(model_without_ddp, args.weight_decay, no_weight_decay_list=model_without_ddp.no_weight_decay(), layer_decay=args.layer_decay)    
-    optimizer = torch.optim.AdamW(param_groups, lr=args.lr)
+    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, fused=True)
     loss_scaler = NativeScaler()
+
+    misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
     # build criterion
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.smoothing)
@@ -265,7 +242,7 @@ def main(args):
         data_loader_train.sampler.set_epoch(epoch)
         
         train_stats = train_one_epoch(model, criterion, data_loader_train, optimizer, device, epoch, loss_scaler, args.clip_grad, args=args)
-        test_stats = evaluate(data_loader_val, model, device)
+        test_stats = evaluate(data_loader_val, model_without_ddp, device)
         print(f"Accuracy of the model on the {len(dataset_val)} test images (top-5): {test_stats['acc5']:.1f}%")
 
         if args.output_dir and test_stats["acc5"] > max_accuracy:

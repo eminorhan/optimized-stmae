@@ -32,7 +32,7 @@ def train_one_epoch(
     max_norm: float = 0,
     args=None,
 ):
-    model.train(True)
+    model.train()
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", misc.SmoothedValue(window_size=1, fmt="{value:.6f}"))
     header = "Epoch: [{}]".format(epoch)
