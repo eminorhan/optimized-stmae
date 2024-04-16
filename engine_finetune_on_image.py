@@ -18,7 +18,7 @@ import util.lr_sched as lr_sched
 
 import torch
 from util.logging import master_print as print
-from timm.utils import accuracy
+from util.misc import accuracy
 
 
 def train_one_epoch(
