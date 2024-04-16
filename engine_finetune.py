@@ -18,7 +18,6 @@ import util.lr_sched as lr_sched
 
 import torch
 from util.logging import master_print as print
-from util.misc import accuracy
 
 
 def train_one_epoch(
@@ -115,7 +114,7 @@ def evaluate(data_loader, model, device):
             output = model(images)
             loss = criterion(output, target)
 
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        acc1, acc5 = misc.accuracy(output, target, topk=(1, 5))
 
         batch_size = images.shape[0]
         metric_logger.update(loss=loss.item())
