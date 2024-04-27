@@ -11,6 +11,7 @@
 import math
 import torch
 import util.misc as misc
+import util.lr_sched as lr_sched
 
 from typing import Iterable
 from iopath.common.file_io import g_pathmgr as pathmgr
@@ -32,11 +33,16 @@ def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, optimizer: to
     optimizer.zero_grad()
 
     for data_iter_step, (samples, _) in enumerate(metric_logger.log_every(data_loader, len(data_loader) // num_logs_per_epoch, header)):
-        
-        samples = samples.to(device, non_blocking=True)
+
+        # we use a per iteration (instead of per epoch) lr scheduler
+        if data_iter_step % accum_iter == 0:
+            lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
+
         if len(samples.shape) == 6:
             b, r, c, t, h, w = samples.shape
             samples = samples.reshape(b * r, c, t, h, w)
+
+        samples = samples.to(device, non_blocking=True)
 
         with torch.cuda.amp.autocast():
             loss, _, _ = model(samples, mask_ratio=args.mask_ratio)
