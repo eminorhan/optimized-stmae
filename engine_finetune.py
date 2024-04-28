@@ -29,7 +29,7 @@ def train_one_epoch(
     epoch: int,
     loss_scaler,
     max_norm: float = 0,
-    args=None,
+    args=None
 ):
     model.train()
     metric_logger = misc.MetricLogger(delimiter="  ")

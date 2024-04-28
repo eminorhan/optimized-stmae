@@ -48,9 +48,14 @@ def get_args_parser():
     parser.add_argument('--compile', action='store_true', help='whether to compile the model for improved efficiency (default: false)')
     parser.set_defaults(norm_pix_loss=False)
 
-    # Training related parameters
+    # LR related parameters
     parser.add_argument("--weight_decay", type=float, default=0.05, help="Weight decay")
     parser.add_argument("--lr", type=float, default=None, help="Learning rate (absolute lr)")
+    parser.add_argument("--blr", type=float, default=1e-3, metavar="LR", help="base learning rate: absolute_lr = base_lr * total_batch_size / 256")
+    parser.add_argument("--min_lr", type=float, default=1e-5, metavar="LR", help="lower lr bound for cyclic schedulers that hit 0")
+    parser.add_argument("--warmup_epochs", type=int, default=0, metavar="N", help="epochs to warmup LR")
+
+    # Misc
     parser.add_argument("--device", default="cuda", help="Device to use for training / testing")
     parser.add_argument("--clip_grad", type=float, default=None)
     parser.add_argument("--start_epoch", default=0, type=int, help="Start epoch")
@@ -138,6 +143,11 @@ def main(args):
     # effective batch size
     eff_batch_size = args.batch_size_per_gpu * args.accum_iter * misc.get_world_size()
     print(f"Effective batch size: {eff_batch_size} = {args.batch_size_per_gpu} batch_size_per_gpu * {args.accum_iter} accum_iter * {misc.get_world_size()} GPUs")
+
+    # effective lr
+    if args.lr is None:  # only base_lr is specified
+        args.lr = args.blr * eff_batch_size / 256
+    print(f"Effective lr: {args.lr}")
 
     # define model
     model = models_mae.__dict__[args.model](**vars(args))

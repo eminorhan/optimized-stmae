@@ -16,7 +16,15 @@ import util.lr_sched as lr_sched
 from typing import Iterable
 from iopath.common.file_io import g_pathmgr as pathmgr
 
-def train_one_epoch(model: torch.nn.Module, data_loader: Iterable, optimizer: torch.optim.Optimizer, device: torch.device, epoch: int, loss_scaler, args=None):
+def train_one_epoch(
+        model: torch.nn.Module, 
+        data_loader: Iterable, 
+        optimizer: torch.optim.Optimizer, 
+        device: torch.device, 
+        epoch: int, 
+        loss_scaler, 
+        args=None
+    ):
     
     model.train()
     metric_logger = misc.MetricLogger(delimiter="  ")
