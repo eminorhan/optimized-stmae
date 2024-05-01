@@ -44,7 +44,7 @@ def get_args_parser():
 
     # Model parameters
     parser.add_argument("--model", default="vit_large_patch16", type=str, metavar="MODEL", help="Name of model to train")
-    parser.add_argument("--input_size", default=224, type=int, help="images input size")
+    parser.add_argument("--img_size", default=224, type=int, help="images input size")
     parser.add_argument("--dropout", type=float, default=0.3)
     parser.add_argument("--drop_path_rate", type=float, default=0.1, metavar="PCT", help="Drop path rate")
 
@@ -122,8 +122,8 @@ def main(args):
     # ============ preparing data ... ============
     # validation transforms
     val_transform = Compose([
-        Resize(args.input_size + 32, interpolation=3),
-        CenterCrop(args.input_size),
+        Resize(args.img_size + 32, interpolation=3),
+        CenterCrop(args.img_size),
         ToTensor(),
         Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
