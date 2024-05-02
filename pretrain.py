@@ -168,7 +168,7 @@ def main(args):
     optimizer = torch.optim._multi_tensor.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95), fused=True)
     loss_scaler = NativeScaler()
 
-    misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
+    misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler, with_optim_sched=True)
     
     checkpoint_path = ""
     print(f"Start training for {args.epochs} epochs")

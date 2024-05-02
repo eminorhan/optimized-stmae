@@ -67,7 +67,7 @@ def get_args_parser():
     parser.add_argument("--frac_retained", default=1.0, type=float, choices=[0.010147, 0.02, 0.03, 0.05, 0.1, 1.0], help="fraction of train data retained for finetuning")
 
     # * Finetuning params
-    parser.add_argument("--finetune", default="", help="finetune from checkpoint")
+    parser.add_argument("--resume", default="", help="finetune from checkpoint")
     parser.add_argument("--global_pool", action="store_true")
     parser.add_argument("--cls_token", action="store_false", dest="global_pool", help="Use class token instead of global pool for classification")
     parser.set_defaults(global_pool=True)
@@ -75,7 +75,6 @@ def get_args_parser():
     parser.add_argument("--output_dir", default="./output_dir", help="path where to save, empty for no saving")
     parser.add_argument("--device", default="cuda", help="device to use for training / testing")
     parser.add_argument("--seed", default=0, type=int)
-    parser.add_argument("--resume", default="", help="resume from checkpoint")
     parser.add_argument("--start_epoch", default=0, type=int, metavar="N", help="start epoch")
     parser.add_argument("--eval", action="store_true", help="Perform evaluation only")
     parser.add_argument("--num_workers", default=16, type=int)
@@ -159,32 +158,6 @@ def main(args):
 
     # define model
     model = models_vit.__dict__[args.model](**vars(args))
-
-    if misc.get_last_checkpoint(args) is None and args.finetune and not args.eval:
-        with pathmgr.open(args.finetune, "rb") as f:
-            checkpoint = torch.load(f, map_location="cpu")
-
-        print("Load pre-trained checkpoint from: %s" % args.finetune)
-        if "model" in checkpoint.keys():
-            checkpoint_model = checkpoint["model"]
-        else:
-            checkpoint_model = checkpoint["model_state"]
-        state_dict = model.state_dict()
-        for k in ["head.weight", "head.bias"]:
-            if (k in checkpoint_model and checkpoint_model[k].shape != state_dict[k].shape):
-                print(f"Removing key {k} from pretrained checkpoint")
-                del checkpoint_model[k]
-
-        # interpolate position embedding
-        interpolate_pos_embed(model, checkpoint_model)
-
-        # load pre-trained model
-        msg = model.load_state_dict(checkpoint_model, strict=False)
-        print(msg)
-
-        # manually initialize fc layer
-        trunc_normal_(model.head.weight, std=2e-5)
-
     model.to(device)
     model_without_ddp = model
     print(f"Model: {model_without_ddp}")
@@ -208,6 +181,8 @@ def main(args):
     param_groups = lrd.param_groups_lrd(model_without_ddp, args.weight_decay, no_weight_decay_list=model_without_ddp.no_weight_decay(), layer_decay=args.layer_decay)    
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, fused=True)
     loss_scaler = NativeScaler()
+
+    misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
     # build criterion
     criterion = torch.nn.CrossEntropyLoss(label_smoothing=args.smoothing)
