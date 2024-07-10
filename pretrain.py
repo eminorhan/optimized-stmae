@@ -166,6 +166,7 @@ def main(args):
     # following timm: set wd as 0 for bias and norm layers
     param_groups = misc.add_weight_decay(model_without_ddp, args.weight_decay, bias_wd=args.bias_wd)
     optimizer = torch.optim._multi_tensor.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95), fused=True)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=90, gamma=0.1)  # can use any other scheduler here
     loss_scaler = NativeScaler()
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler, with_optim_sched=True)
@@ -187,6 +188,9 @@ def main(args):
         if args.output_dir and misc.is_main_process():
             with pathmgr.open(f"{args.output_dir}/{args.save_prefix}_log.txt", "a") as f:
                 f.write(json.dumps(log_stats) + "\n")
+
+        # increment lr scheduler
+        scheduler.step()
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

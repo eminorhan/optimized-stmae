@@ -32,7 +32,6 @@ from util.kinetics import Kinetics
 from util.logging import master_print as print
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
-from torch.nn.init import trunc_normal_
 
 def get_args_parser():
     parser = argparse.ArgumentParser("MAE fine-tuning for image classification", add_help=False)
@@ -217,6 +216,7 @@ def main(args):
     # build optimizer with layer-wise lr decay (lrd)
     param_groups = lrd.param_groups_lrd(model_without_ddp, args.weight_decay, no_weight_decay_list=model_without_ddp.no_weight_decay(), layer_decay=args.layer_decay)    
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, fused=True)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.1)  # can use any other scheduler here
     loss_scaler = NativeScaler()
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
@@ -255,6 +255,9 @@ def main(args):
         if args.output_dir and misc.is_main_process():
             with pathmgr.open(f"{args.output_dir}/{args.save_prefix}_log.txt", "a") as f:
                 f.write(json.dumps(log_stats) + "\n")
+
+        # increment lr scheduler
+        scheduler.step()
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
