@@ -9,6 +9,8 @@ A lean, optimized implementation of spatiotemporal masked autoencoders (ST-MAEs)
 - [x] `DDP` for distributed training
 - [x] selective decoding of videos
 
+These optimizations allow us to achieve a **very high training throughput**: *e.g.* on merely 4 H100 GPUs, in roughly 1 week, we were able to complete over 160 epochs of training on Kinetics-700 (~536K videos) with a ViT-H encoder (~633M parameters) with 8x16x16=2048 spatiotemporal input "tokens" (*i.e.* 8 tokens in the temporal dimension and 16x16 tokens in the spatial dimensions) with a masking ratio of 90% and an effective batch size of 256 videos (64 videos on each GPU).
+
 Dependence of model definitions on the `timm` library is also removed in this implementation, so the code is self-contained except for the standard libraries. The code was tested with `pytorch==2.2.0` and `torchvision==0.17.0`.
 
 ### Usage examples
